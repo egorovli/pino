@@ -11,6 +11,7 @@ import {
   stripIntermediateMessageBreakpoints,
 } from "./cache.js";
 import { rewriteSystemModelRefs } from "./model.js";
+import { normalizeMessageStructure } from "./normalize.js";
 import {
   createResponseLogStream,
   fileTs,
@@ -77,6 +78,14 @@ export function createServer({ config, transformFn }) {
           log("WARN transform threw, skipping:", err.message);
           notes.push("transform=err");
         }
+      }
+
+      // Structural guard: keep mid-conversation `system` messages (e.g. Remote
+      // Control breadcrumbs) in API-valid positions after any body mutation,
+      // before cache breakpoints are placed on the final shape.
+      if (parsed) {
+        const foldedSys = normalizeMessageStructure(parsed);
+        if (foldedSys > 0) notes.push(`normalize=sys-folded:${foldedSys}`);
       }
 
       if (parsed && AUTO_CACHE) {

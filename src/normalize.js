@@ -19,11 +19,26 @@
 // must not emit a structurally-invalid array, so we repair it here.
 //
 // Repair strategy (lossless): fold the offending `system` message's content
-// into the *next* `user` message (prepended), falling back to the previous
-// `user` message (appended); if there is no `user` neighbour at all, demote
-// the message to `user` in place. This restores valid alternation while
-// preserving the breadcrumb text, exactly as Claude Code represented these
-// reminders before the mid-conversation-system beta existed.
+// into the *next* `user` message and drop the stray message; if there is no
+// reachable `user` to fold into, demote the message to `user` in place. This
+// restores valid alternation while preserving the breadcrumb text, exactly as
+// Claude Code represented these reminders before the mid-conversation-system
+// beta existed.
+//
+// Folding-forward interacts with a *second* API rule. When the steer lands
+// while Claude is mid-tool — the common Remote Control pattern — the breadcrumb
+// sits between an assistant `tool_use` and the `user` message carrying its
+// `tool_result`:
+//
+//   assistant[…, tool_use] → system(breadcrumb) → user[tool_result, …]
+//
+// Two things must hold for the folded result: the tool_result-bearing `user`
+// must stay *immediately* after the assistant (tool_use→tool_result adjacency),
+// and `tool_result` blocks must remain at the front of that user turn (Claude
+// Code emits tool_result-first in 100% of observed turns; the API rejects text
+// ahead of a tool_result). So we splice the breadcrumb in *after* any leading
+// tool_result blocks rather than blindly prepending — prepending produced the
+// invalid `user[text, tool_result]` shape that broke mid-tool steers.
 
 function toBlocks(content) {
   if (Array.isArray(content)) return content;
@@ -31,6 +46,15 @@ function toBlocks(content) {
     return [{ type: "text", text: content }];
   }
   return [];
+}
+
+// Index of the first block that is *not* a tool_result, i.e. the offset past
+// the leading tool_result run. Breadcrumb content is inserted here so that
+// tool_result blocks stay at the front of the user turn.
+function firstNonToolResultIndex(blocks) {
+  let k = 0;
+  while (k < blocks.length && blocks[k] && blocks[k].type === "tool_result") k++;
+  return k;
 }
 
 function endsInToolResult(msg) {
@@ -68,7 +92,9 @@ export function normalizeMessageStructure(body) {
     }
 
     if (nextUser) {
-      nextUser.content = [...blocks, ...toBlocks(nextUser.content)];
+      const target = toBlocks(nextUser.content);
+      const at = firstNonToolResultIndex(target);
+      nextUser.content = [...target.slice(0, at), ...blocks, ...target.slice(at)];
       msgs.splice(i, 1);
       i -= 1;
     } else {

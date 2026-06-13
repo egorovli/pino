@@ -8,7 +8,8 @@
   },
   "main": "src/server.js",
   "scripts": {
-    "start": "node bin/pino-proxy.js"
+    "start": "node bin/pino-proxy.js",
+    "test": "node test/normalize.test.mjs && node test/pipeline.test.mjs"
   },
   "engines": {
     "node": ">=20"

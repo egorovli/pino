@@ -84,8 +84,13 @@ export function createServer({ config, transformFn }) {
       // Control breadcrumbs) in API-valid positions after any body mutation,
       // before cache breakpoints are placed on the final shape.
       if (parsed) {
-        const foldedSys = normalizeMessageStructure(parsed);
-        if (foldedSys > 0) notes.push(`normalize=sys-folded:${foldedSys}`);
+        try {
+          const foldedSys = normalizeMessageStructure(parsed);
+          if (foldedSys > 0) notes.push(`normalize=sys-folded:${foldedSys}`);
+        } catch (err) {
+          log("WARN normalize threw, forwarding un-normalized:", err.message);
+          notes.push("normalize=err");
+        }
       }
 
       if (parsed && AUTO_CACHE) {

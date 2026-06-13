@@ -155,6 +155,17 @@ function restructureV123(body) {
       );
     };
 
+    // A "stale" block is only safe to drop if it is *entirely* scaffolding.
+    // Claude Code's Remote Control welds the user's actual message onto the
+    // injected breadcrumb in a single block, e.g.
+    //   "<system-reminder>Message sent at …</system-reminder>\nTest"
+    // Dropping the whole block silently destroys the steer ("Test"), and the
+    // model then sees an empty turn. So we shed only the recognised wrapper
+    // spans and return whatever real text remains.
+    const STALE_SPAN_RE =
+      /<(system-reminder|local-command-stdout|local-command-caveat|command-name|command-message|command-args)>[\s\S]*?<\/\1>/g;
+    const stripStaleScaffolding = (t) => t.replace(STALE_SPAN_RE, "").trim();
+
     const coreBlocks = [];
 
     // 1. Process ALL messages to extract core context and remove stale scaffolding
@@ -173,8 +184,14 @@ function restructureV123(body) {
             continue;
           }
           if (!isTail && isStaleRemovable(block.text)) {
-            // Drop stale reminders in history (including Msg 0)
-            continue;
+            const remainder = stripStaleScaffolding(block.text);
+            if (remainder.length === 0) {
+              // Pure scaffolding — drop the stale reminder from history.
+              continue;
+            }
+            // Reminder had real user content welded on (a Remote Control steer).
+            // Keep the message; just shed the scaffolding markup.
+            block.text = remainder;
           }
         }
         // Preserve everything else: tool_results, normal text, tool_use, tail reminders
